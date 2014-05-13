@@ -34,6 +34,7 @@ subroutine mds(pow, fill_value, nr, ng, P, Q, R2, N)
 
    do g = 1, ng
       do r = 1, nr
+
 !       Calculate the number of valid gates (N) and then compute the mean (P)
 !       and variance (Q) of the signal for the current iteration
         N_tmp = dble(count(pow_mask(r:nr,g)))
@@ -41,11 +42,15 @@ subroutine mds(pow, fill_value, nr, ng, P, Q, R2, N)
         Q_tmp = sum(pow(r:nr,g)**2, pow_mask(r:nr,g)) / N_tmp - P_tmp**2
         R2_tmp = P_tmp**2 / Q_tmp
 
+!       If the white-noise criterion is met, then we have found our noise
+!       floor for the current range and we can save the appropriate variables
+!       and exit the current iteration
         if (R2_tmp > 1.d0) then
            P(g) = P_tmp
            Q(g) = Q_tmp
            R2(g) = pow(r,g)
            N(g) = N_tmp
+           exit
         endif
 
       enddo
