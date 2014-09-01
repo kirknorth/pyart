@@ -52,7 +52,7 @@ def map_to_grid(radar, grid_dimensions, grid_origin=None, fields=None,
 		fill_value = get_fillvalue()
 
 	# Check weight function parameters
-	if weighting_function.upper() not in ['CRESSMAN', 'BARNES']:
+	if weighting_function not in ['Cressman', 'Barnes']:
 		raise ValueError('Unsupported weighting_function')
 
 	# Get grid origin if not given
@@ -80,6 +80,13 @@ def map_to_grid(radar, grid_dimensions, grid_origin=None, fields=None,
 
 	# Parse Cartesian locations of analysis grid
 	z_a, y_a, x_a = grid_dimensions
+
+	# Compute the radius of influence for each analysis point, if necessary
+	if not hasattr(roi_func, '__call__'):
+		if roi_func == 'constant':
+			roi = constant_roi
+		else:
+			raise ValueError('Unsupported roi_func')
 
 	# Create k-d tree object from analysis grid
 	tree_a = spatial.cKDTree(zip(z_a, y_a, x_a), leafsize=leafsize)
