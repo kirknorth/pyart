@@ -52,7 +52,7 @@ def map_to_grid(radar, grid_dimensions, grid_origin=None, fields=None,
 		fill_value = get_fillvalue()
 
 	# Check weight function parameters
-	if weighting_function not in ['Cressman', 'Barnes']:
+	if weighting_function not in ['Cressman', 'Barnes', 'nearest']:
 		raise ValueError('Unsupported weighting_function')
 
 	# Get grid origin if not given
@@ -90,5 +90,10 @@ def map_to_grid(radar, grid_dimensions, grid_origin=None, fields=None,
 
 	# Create k-d tree object from analysis grid
 	tree_a = spatial.cKDTree(zip(z_a, y_a, x_a), leafsize=leafsize)
+
+	# Query k-d tree
+	if weighting_function == 'nearest':
+		dist, ind = tree_a.query(zip(z_g, y_g, x_g), k=1, p=2, eps=0,
+			                     distance_upper_bound=np.inf)
 
 	return grid
