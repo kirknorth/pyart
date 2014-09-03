@@ -172,7 +172,16 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 		print 'Maximum distance is %.2f m' % dist.max()
 		print 'Index array has shape %s' % (ind.shape,)
 		print 'Minimum index is %i' % ind.min()
-		print 'Maximum index is %i' % ind.max()	
+		print 'Maximum index is %i' % ind.max()
+
+	# Missing neighbors are indicated with an index set to tree.n
+	# This condition will not be met for the nearest neighbor scheme, but
+	# it can be met for the Cressman and Barnes schemes
+	# We can safely set the index of missing neighbors to 0 since
+	# its weight can also be set to 0 later and thus not affect the
+	# interpolation (averaging)
+	bad_index = ind == tree_g.n
+	ind[bad_index] = 0
 
 	# Interpolate the radar data onto the analysis grid and populate the
 	# mapped fields dictionary
@@ -182,17 +191,19 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 
 		if weighting_function == 'nearest':
 			fq = radar_data[ind]
-			map_fields[field] = {'data': fq.reshape(nz, ny, nx)}
-
+			
 		elif weighting_function == 'Barnes':
 			wq = np.exp(-dist**2 / kappa)
 			fq = np.ma.average(radar_data[ind], weights=wq, axis=1)
-			map_fields[field] = {'data': fq.reshape(nz, ny, nx)}
 
 		else:
-			wq = (roi**2 - dist**2) / (roi**2 + dist**2)
+			roi_stack = np.repeat(roi, k).reshape(roi.size, k)
+			wq = (roi_stack**2 - dist**2) / (roi_stack**2 + dist**2)
+			not_close = dist > roi_stack
+			wq[not_close] = 0.0
 			fq = np.ma.average(radar_data[ind], weights=wq, axis=1)
-			map_fields[field] = {'data': fq.reshape(nz, ny, nx)}
+
+		map_fields[field] = {'data': fq.reshape(nz, ny, nx)}
 
 		# Populate mapped field metadata
 		[map_fields[field].update({meta: value}) for meta, value in 
