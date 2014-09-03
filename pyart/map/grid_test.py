@@ -110,20 +110,6 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 	y_g = y_g + offset[1]
 	x_g = x_g + offset[2]
 
-	# Remove radar gates that are past the "top of the atmosphere"
-	# This will speed up processing time during the creation of the k-d tree
-	# since it removes unneccessary gates
-	is_below_toa = z_g <= toa
-	z_g = z_g[is_below_toa]
-	y_g = y_g[is_below_toa]
-	x_g = x_g[is_below_toa]
-	for field in fields:
-		radar.fields[field].update({'data':
-					radar.fields[field]['data'].flatten()[is_below_toa]})
-
-	if debug:
-		print 'Number of radar gates below TOA is %i' % is_below_toa.sum()
-
 	# Parse Cartesian coordinates of analysis grid
 	z_a, y_a, x_a = grid_coords
 	nz = len(z_a)
@@ -170,11 +156,44 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 			print 'Maximum ROI is %.2f m' % np.max(roi)
 			print 'ROI array has shape %s' % (np.shape(roi),)
 
+	# Remove radar gates that are past the "top of the atmosphere"
+	# This will speed up processing time during the creation of the k-d tree
+	# since it removes unneccessary gates
+	is_below_toa = z_g <= toa
+	if debug:
+		print 'Number of radar gates below TOA is %i' % is_below_toa.sum()
+
 	# Remove radar gates that are too far from the analysis grid to be
 	# captured by any analysis grid point radius of influence (Cressman) 
 	# or the cutoff radius (Barnes)
 	if weighting_function in ['Cressman', 'Barnes']:
-		
+		# Compute the distance each radar gate is from the analysis domain 
+		# origin and the maximum distance any analysis point is from the
+		# analysis domain origin
+		dist_g = np.sqrt(x_g**2 + y_g**2 + z_g**2)
+		max_dist_a = np.sqrt(x_a**2 + y_a**2 + z_a**2).max()
+
+		if weighting_function == 'Barnes':
+			is_captured = dist_g <= max_dist_a + cutoff_radius
+		else:
+			is_captured = dist_g <= max_dist_a + max_roi
+
+		is_valid_gate = np.logical_and(is_below_toa, is_captured)
+
+	else:
+		is_valid_gate = is_below_toa
+
+	if debug:
+		print 'Total number of radar gates before pruning: %i' % z_g.size
+		print 'Total number of radar gates after pruning: %i' % is_valid_gate.sum()
+
+	# Update radar gates and radar data
+	z_g = z_g[is_valid_gate]
+	y_g = y_g[is_valid_gate]
+	x_g = x_g[is_valid_gate]
+	for field in fields:
+		radar.fields[field].update({'data':
+					radar.fields[field]['data'].flatten()[is_valid_gate]})
 
 	# Create k-d tree object for radar gate locations
 	# Depending on the number of radar gates this can be resource intensive
@@ -231,7 +250,7 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 			print 'Mapping field: %s' % field
 
 		# Get radar data
-		radar_data = radar.fields[field]['data'].flatten()
+		radar_data = radar.fields[field]['data']
 
 		if weighting_function == 'nearest':
 			fq = radar_data[ind]
