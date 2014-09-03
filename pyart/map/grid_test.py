@@ -39,13 +39,14 @@ def _radar_coords_to_cartesian(radar, debug=False):
 
 	return z, y, x
 
+
 def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 				weighting_function='Cressman', toa=17000.0, leafsize=10.0, 
 				k=1, eps=0.0, roi_func='constant', constant_roi=1000.0, 
 				cutoff_radius=5000.0, min_radius=250.0, x_factor=0.01,
-				y_factor=0.01, z_factor=0.01, map_roi=False, map_dist=True, 
-				proj='lcc', datum='NAD83', ellps='GRS80', 
-				fill_value=None, debug=False):
+				y_factor=0.01, z_factor=0.01, nb=1.0, bsp=1.0, h_factor=0.1,
+				map_roi=False, map_dist=True, proj='lcc', datum='NAD83', 
+				ellps='GRS80', fill_value=None, debug=False):
 	"""
 	Map one or more radars to a Cartesian analysis grid.
 
@@ -90,7 +91,7 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 	if fields is None:
 		fields = radar.fields.keys()
 	else:
-		if not (set(fields) & set(radar.fields.keys())):
+		if not set(fields).issubset(set(radar.fields.keys())):
 			raise ValueError('One or more specified fields do not exist')
 
 
@@ -108,6 +109,20 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 	z_g = z_g + offset[0]
 	y_g = y_g + offset[1]
 	x_g = x_g + offset[2]
+
+	# Remove radar gates that are past the "top of the atmosphere"
+	# This will speed up processing time during the creation of the k-d tree
+	is_below_toa = z_g <= toa
+	z_g = z_g[is_below_toa]
+	y_g = y_g[is_below_toa]
+	x_g = x_g[is_below_toa]
+	for field in fields:
+		radar.fields[field].update({'data':
+					radar.fields[field]['data'].flatten()[is_below_toa]})
+
+	if debug:
+		print 'Number of radar gates below TOA is %i' % is_below_toa.sum()
+
 
 	# Parse Cartesian locations of analysis grid
 	z_a, y_a, x_a = grid_coords
@@ -127,24 +142,32 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 		print 'Grid array has shape %s' % (z_a.shape,)
 
 	# Compute the radius of influence for each analysis point, if necessary
-	if not hasattr(roi_func, '__call__'):
+	if not hasattr(roi_func, '__call__') and weighting_function == 'Cressman':
 		if roi_func == 'constant':
 			roi = constant_roi
-			max_roi = constant_roi
 
 		elif roi_func == 'dist':
 			roi = default_roi_func_dist(
 				    x_a, y_a, z_a, offset, x_factor=x_factor,
 				    y_factor=y_factor, z_factor=z_factor,
 				    min_radius=min_radius)
-			max_roi = roi.max()
+
+		elif roi_func == 'beam':
+			roi = default_roi_func_beam(
+					x_a, y_a, z_a, offset, nb=nb, bsp=bsp,
+					h_factor=h_factor, min_radius=min_radius)
 
 		else:
 			raise ValueError('Unsupported roi_func')
 
+		# Compute the maximum radius of influece within the analysis domain
+		# This will serve to "prune" the k-d tree search when a Cressman
+		# scheme is desired 
+		max_roi = np.max(roi)
+
 		if debug:
 			print 'Minimum ROI is %.2f m' % np.min(roi)
-			print 'Maximum ROI is %.2f m' % np.min(roi)
+			print 'Maximum ROI is %.2f m' % np.max(roi)
 			print 'ROI array has shape %s' % (np.shape(roi),)
 
 	# Create k-d tree object for radar gate locations
@@ -162,9 +185,20 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 	elif weighting_function == 'Barnes':
 		dist, ind = tree_g.query(zip(z_a, y_a, x_a), k=k, p=2.0, eps=eps,
 			                     distance_upper_bound=cutoff_radius)
+		# Compute the Barnes distance-dependent weights
+		wq = np.ma.exp(-dist**2 / kappa)
+
 	else:
 		dist, ind = tree_g.query(zip(z_a, y_a, x_a), k=k, p=2.0, eps=eps,
 			                     distance_upper_bound=max_roi)
+
+		# Compute the Cressman distance-dependent weights
+		# Where the neighbor is further than the Cressman radius of
+		# influence, set its weight to zero
+		roi_stack = np.repeat(roi, k).reshape(roi.size, k)
+		wq = (roi_stack**2 - dist**2) / (roi_stack**2 + dist**2)
+		is_past_roi = dist > roi_stack
+		wq[is_past_roi] = 0.0
 
 	if debug:
 		print 'Distance array has shape %s' % (dist.shape,)
@@ -178,8 +212,8 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 	# This condition will not be met for the nearest neighbor scheme, but
 	# it can be met for the Cressman and Barnes schemes
 	# We can safely set the index of missing neighbors to 0 since
-	# its weight can also be set to 0 later and thus not affect the
-	# interpolation (averaging)
+	# its weight has already been set to 0 later and thus it will not affect 
+	# the interpolation (weighted averaging)
 	bad_index = ind == tree_g.n
 	ind[bad_index] = 0
 
@@ -187,20 +221,18 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 	# mapped fields dictionary
 	map_fields = {}
 	for field in fields:
+		if debug:
+			print 'Mapping field: %s' % field
+
+		# Get radar data
 		radar_data = radar.fields[field]['data'].flatten()
 
 		if weighting_function == 'nearest':
 			fq = radar_data[ind]
 			
-		elif weighting_function == 'Barnes':
-			wq = np.exp(-dist**2 / kappa)
-			fq = np.ma.average(radar_data[ind], weights=wq, axis=1)
-
 		else:
-			roi_stack = np.repeat(roi, k).reshape(roi.size, k)
-			wq = (roi_stack**2 - dist**2) / (roi_stack**2 + dist**2)
-			not_close = dist > roi_stack
-			wq[not_close] = 0.0
+			# Compute the distance-weighted average
+			# This is applicable for both Cressman and Barnes schemes
 			fq = np.ma.average(radar_data[ind], weights=wq, axis=1)
 
 		map_fields[field] = {'data': fq.reshape(nz, ny, nx)}
@@ -332,5 +364,21 @@ def default_roi_func_dist(x_a, y_a, z_a, offset, x_factor=1.0, y_factor=1.0,
 
 	roi = np.sqrt(x_factor * x_a**2 + y_factor * y_a**2 + 
 		          z_factor * z_a**2) + min_radius
+
+	return roi
+
+def default_roi_func_beam(x_a, y_a, z_a, offset, nb=1.0, bsp=1.0,
+						  h_factor=1.0, min_radius=250.0):
+	"""
+	"""
+
+	# Apply the offset to the analysis grid such that it is now
+	# radar-centric
+	z_a = z_a - offset[0]
+	y_a = y_a - offset[1]
+	x_a = x_a - offset[2]
+
+	roi = h_factor * z_a + np.sqrt(x_a**2 + y_a**2) * \
+	      np.tan(nb * bsp * np.pi / 180.0) + min_radius
 
 	return roi
