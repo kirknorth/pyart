@@ -112,6 +112,7 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 
 	# Remove radar gates that are past the "top of the atmosphere"
 	# This will speed up processing time during the creation of the k-d tree
+	# since it removes unneccessary gates
 	is_below_toa = z_g <= toa
 	z_g = z_g[is_below_toa]
 	y_g = y_g[is_below_toa]
@@ -123,8 +124,7 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 	if debug:
 		print 'Number of radar gates below TOA is %i' % is_below_toa.sum()
 
-
-	# Parse Cartesian locations of analysis grid
+	# Parse Cartesian coordinates of analysis grid
 	z_a, y_a, x_a = grid_coords
 	nz = len(z_a)
 	ny = len(y_a)
@@ -169,6 +169,12 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 			print 'Minimum ROI is %.2f m' % np.min(roi)
 			print 'Maximum ROI is %.2f m' % np.max(roi)
 			print 'ROI array has shape %s' % (np.shape(roi),)
+
+	# Remove radar gates that are too far from the analysis grid to be
+	# captured by any analysis grid point radius of influence (Cressman) 
+	# or the cutoff radius (Barnes)
+	if weighting_function in ['Cressman', 'Barnes']:
+		
 
 	# Create k-d tree object for radar gate locations
 	# Depending on the number of radar gates this can be resource intensive
