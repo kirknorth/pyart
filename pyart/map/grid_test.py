@@ -40,7 +40,7 @@ def _radar_coords_to_cartesian(radar, debug=False):
 	return z, y, x
 
 
-def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
+def map_radar_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 				weighting_function='Cressman', toa=17000.0, leafsize=10.0, 
 				k=1, eps=0.0, roi_func='constant', constant_roi=1000.0, 
 				cutoff_radius=5000.0, min_radius=250.0, x_factor=0.01,
@@ -103,6 +103,8 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 					 x_0=0.0, y_0=0.0, datum=datum, ellps=ellps)
 	radar_x, radar_y = pj(radar_lon, radar_lat)
 	offset = (0.0, radar_y, radar_x)
+	if debug:
+		print 'Radar (y, x) in analysis grid is (%.2f, %.2f)' % offset[1:]
 
 	# Calculate Cartesian locations of radar gates relative to grid origin
 	z_g, y_g, x_g = _radar_coords_to_cartesian(radar, debug=debug)
@@ -308,13 +310,13 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 
 	# Populate grid origin dictionaries
 	altitude = {
-		'data': 0.0,
+		'data': np.array([0.0]),
 		'units': 'meters',
 		'standard_name': 'altitude',
 		'long_name': 'Altitude at grid origin above mean sea level'}
 
 	latitude = {
-		'data': grid_origin[0],
+		'data': np.array([grid_origin[0]]),
 		'units': 'degrees_N',
 		'standard_name': 'latitude',
 		'valid_min': -90.0,
@@ -322,7 +324,7 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 		'long_name': 'Latitude at grid origin'}
 
 	longitude = {
-		'data': grid_origin[1],
+		'data': np.array([grid_origin[1]]),
 		'units': 'degrees_E',
 		'standard_name': 'longitude',
 		'valid_min': -180.0,
@@ -332,21 +334,21 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 
 	# Populate time dictionaries
 	time = {
-		'data': radar.time['data'].min(),
+		'data': np.array([radar.time['data'].min()]),
 		'units': radar.time['units'],
 		'calendar': radar.time['calendar'],
 		'standard_name': radar.time['standard_name'],
 		'long_name': 'Time in seconds since volume start'}
 
 	time_start = {
-		'data': radar.time['data'].min(),
+		'data': np.array([radar.time['data'].min()]),
 		'units': radar.time['units'],
 		'calendar': radar.time['calendar'],
 		'standard_name': radar.time['standard_name'],
 		'long_name': 'Time in seconds since volume start'}
 
 	time_end = {
-		'data': radar.time['data'].max(),
+		'data': np.array([radar.time['data'].max()]),
 		'units': radar.time['units'],
 		'calendar': radar.time['calendar'],
 		'standard_name': radar.time['standard_name'],
@@ -360,18 +362,30 @@ def map_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 		'x_disp': x_disp,
 		'y_disp': y_disp,
 		'z_disp': z_disp,
-		'altitude': altitude,
-		'latitude': latitude,
-		'longitude': longitude}
+		'alt': altitude,
+		'lat': latitude,
+		'lon': longitude}
 
 	# Create metadata
 	metadata = {
-		'reference': '',
+		'process_version': '',
+		'references': '',
 		'Conventions': '',
 		'site': '',
 		'facility_id': '',
 		'project': '',
-		'state': ''}
+		'state': '',
+		'comment': '',
+		'institution': '',
+		'country': '',
+		'title': 'Mapped Moments to Cartesian Grid'}
+
+	# Add radar-specific metadata to grid metadata
+	metadata['radar_0_altitude'] = radar.altitude['data'][0]
+	metadata['radar_0_latitude'] = radar.latitude['data'][0]
+	metadata['radar_0_longitude'] = radar.longitude['data'][0]
+	metadata['radar_0_instrument_name'] = radar.metadata['instrument_name']
+
 
 	return Grid(map_fields, axes, metadata)
 
