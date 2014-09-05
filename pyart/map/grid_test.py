@@ -11,6 +11,54 @@ from mpl_toolkits.basemap import pyproj
 from ..config import get_fillvalue, get_field_name
 from ..core.grid import Grid
 
+
+def _calculate_radar_offset(radar, grid_origin, proj='lcc', datum='NAD83',
+							ellps='GRS80', debug=False):
+	"""
+	Calculate the Cartesian coordinates of a radar within the analysis
+	domain.
+
+	Parameters
+	----------
+	radar : Radar
+		Radar object with altitude, latitude, and longitude information.
+	grid_origin : tuple or list
+		The (latitude, longitude) location of the analysis domain origin. The
+		default (None) will use the radar latitude and longitude as the center
+		of the analysis domain.
+	proj : str
+		See pyproj documentation for more information.
+	datum : str
+		See pyproj documentation for more information.
+	ellps : str
+		See pyproj documentation for more information.
+	debug : bool
+		True to print debugging information, False to suppress.
+
+	Return
+	------
+	offset : tuple
+		The radar (y, x) Cartesian location within the analysis domain.
+	"""
+
+	# TODO: include radar altitude information
+
+	# Get radar location data
+	radar_alt = radar.altitude['data'][0]
+	radar_lat = radar.latitude['data'][0]
+	radar_lon = radar.longitude['data'][0]
+
+	# Create projection
+	pj = pyproj.Proj(proj=proj, lat_0=grid_origin[0], lon_0=grid_origin[1],
+					 x_0=0.0, y_0=0.0, datum=datum, ellps=ellps)
+	radar_x, radar_y = pj(radar_lon, radar_lat)
+	offset = (0.0, radar_y, radar_x)
+	if debug:
+		print 'Radar (y, x) in analysis grid is (%.2f, %.2f)' % offset[1:]
+
+	return offset
+
+
 def _radar_coords_to_cartesian(radar, debug=False):
 	"""
 	"""
@@ -54,12 +102,40 @@ def map_radar_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 	----------
 	radar : Radar
 		A radar object to be mapped to the Cartesian analysis grid.
-	grid_coords : tuple
+	grid_coords : tuple or list
 		The (z, y, x) coordinates of the grid in meters. These can describe
 		either a uniform or non-uniform grid.
+	grid_origin : tuple or list
+		The (latitude, longitude) location of the analysis domain origin. The
+		default (None) will use the radar latitude and longitude as the center
+		of the analysis domain.
+	fields : list
+		List of radar fields which will be mapped to the Cartesian analysis
+		domain. The default (None) will map all the radar fields.
+	weighting_function : 'nearest' or 'Barnes' or 'Cressman'
+		Type of weighting function used to weight collected neighbors. Note
+		that if 'nearest', then only the closest neighbor is used, and no
+		weighting is performed.
+	toa : float
+		The "top of the atmosphere" in meters. Collected neighbors above this
+		height are excluded.
+	leafsize : int
+		Leaf size passed to the cKDTree object. This can affect the processing
+		time during the construction and query of the cKDTree, as well as the
+		memory required to store the tree. The optimal value depends on the
+		nature of the input data. Note that this parameter will not affect
+		the results, only the processing time.
 	k : int
-		The number of nearest neighbors to return. When 'weighting_function'
-		is 'Barnes' or 'Cressman', k should be larger than 1.
+		The number of nearest neighbors to return. When weighting_function
+		is 'Barnes' or 'Cressman', k >> 1. If weighting_function is 'nearest',
+		then this parameter can be ignored since k = 1 automatically. Similar 
+		to the leafsize parameter, k will affect the processing time during 
+		the cKDTree query (but not its construction), as well as memory usage.
+		When specifiying k, the following two properties should be satisfied
+		(1) all relevent neighborhood points are collected (depends on cutoff 
+		radius or radius of influence) and (2) memory is managed 
+		appropriately. Through sensitivity experiments, it was determined that
+		for volumetric radar data, 50 < k < 600.
 	eps : float
 		Return approximate nearest neighbors. The k-th returned value is
 		guaranteed to be no further than (1 + eps) times the distance to
@@ -68,6 +144,19 @@ def map_radar_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 		The largest radius in meters to search for points. This is only valid 
 		when 'weighting_function' is 'Barnes', and should be large enough to
 		capture all points where the Barnes weight is nonzero.
+	proj : str
+		See pyproj documentation for more information.
+	datum : str
+		See pyproj documentation for more information.
+	ellps : str
+		See pyproj documentation for more information.
+	debug : bool
+		True to print debugging information, False to suppress.
+
+	Return
+	------
+	grid : Grid
+		Grid object with mapped radar fields, axes, and metadata.
 	"""
 
 	# Parse missing value
@@ -96,15 +185,8 @@ def map_radar_to_grid(radar, grid_coords, grid_origin=None, fields=None,
 
 
 	# Calculate radar offset from the origin
-	radar_alt = radar.altitude['data'][0]
-	radar_lat = radar.latitude['data'][0]
-	radar_lon = radar.longitude['data'][0]
-	pj = pyproj.Proj(proj=proj, lat_0=grid_origin[0], lon_0=grid_origin[1],
-					 x_0=0.0, y_0=0.0, datum=datum, ellps=ellps)
-	radar_x, radar_y = pj(radar_lon, radar_lat)
-	offset = (0.0, radar_y, radar_x)
-	if debug:
-		print 'Radar (y, x) in analysis grid is (%.2f, %.2f)' % offset[1:]
+	offset = _calculate_radar_offset(radar, grid_origin, proj=proj,
+						datum=datum, ellps=ellps, debug=debug)
 
 	# Calculate Cartesian locations of radar gates relative to grid origin
 	z_g, y_g, x_g = _radar_coords_to_cartesian(radar, debug=debug)
