@@ -88,14 +88,16 @@ def _radar_coords_to_cartesian(radar, debug=False):
     return z, y, x
 
 
-def map_radar_to_grid(
-            radar, grid_coords, grid_origin=None, fields=None,
-            weighting_function='Cressman', toa=17000.0, leafsize=10.0,
-            k=1, eps=0.0, roi_func='constant', constant_roi=1000.0,
-            cutoff_radius=5000.0, min_radius=250.0, x_factor=0.01,
-            y_factor=0.01, z_factor=0.01, nb=1.0, bsp=1.0, h_factor=0.1,
-            map_roi=False, map_dist=True, proj='lcc', datum='NAD83',
-            ellps='GRS80', fill_value=None, debug=False):
+def map_radar_to_grid(radar, grid_coords, grid_origin=None, fields=None,
+                      weighting_function='Cressman', toa=17000.0,
+                      leafsize=10.0, k=1, eps=0.0, roi_func='constant',
+                      constant_roi=1000.0, cutoff_radius=5000.0,
+                      in_radius=250.0, x_factor=0.01, y_factor=0.01,
+                      z_factor=0.01, nb=1.0, bsp=1.0, h_factor=0.1,
+                      smooth_func='constant', kappa_star=0.5,
+                      data_space=1220.0, map_roi=False, map_dist=True,
+                      proj='lcc', datum='NAD83', ellps='GRS80',
+                      fill_value=None, debug=False):
     """
     Map one or more radars to a Cartesian analysis grid.
 
@@ -212,7 +214,7 @@ def map_radar_to_grid(
         print 'Grid array has shape %s' % (z_a.shape,)
 
     # Compute the radius of influence for each analysis point, if necessary
-    if not hasattr(roi_func, '__call__') and weighting_function == 'Cressman':
+    if weighting_function == 'Cressman':
         if roi_func == 'constant':
             roi = constant_roi
 
@@ -227,6 +229,9 @@ def map_radar_to_grid(
                     x_a, y_a, z_a, offset, nb=nb, bsp=bsp,
                     h_factor=h_factor, min_radius=min_radius)
 
+        elif hasattr(roi_func, '__call__'):
+            roi = roi_func(x_a, y_a, z_a, offset)
+
         else:
             raise ValueError('Unsupported roi_func')
 
@@ -239,6 +244,17 @@ def map_radar_to_grid(
             print 'Minimum ROI is %.2f m' % np.min(roi)
             print 'Maximum ROI is %.2f m' % np.max(roi)
             print 'ROI array has shape %s' % (np.shape(roi),)
+
+    # Compute the smoothing parameter for each analysis point, if necessary
+    if weighting_function == 'Barnes':
+        if smooth_func == 'constant':
+            kappa = kappa_star * (2.0 * data_space)**2
+
+        elif hasattr(smooth_func, '__call__'):
+            kappa = smooth_func(x_a, y_a, z_a, offset)
+
+        else:
+            raise ValueError('Unsupported smooth_func')
 
     # Remove radar gates that are past the "top of the atmosphere"
     # This will speed up processing time during the creation of the k-d tree
