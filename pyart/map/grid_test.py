@@ -311,7 +311,9 @@ def map_radar_to_grid(radar, grid_coords, grid_origin=None, fields=None,
     elif weighting_function == 'Barnes':
         dist, ind = tree_g.query(zip(z_a, y_a, x_a), k=k, p=2.0, eps=eps,
                                  distance_upper_bound=cutoff_radius)
+
         # Compute the Barnes distance-dependent weights
+        dist = np.ma.masked_invalid(dist)
         wq = np.ma.exp(-dist**2 / kappa)
 
     else:
