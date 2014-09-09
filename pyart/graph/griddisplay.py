@@ -60,7 +60,7 @@ class GridDisplay:
 
         # Set axis labels
         if axislabels_flag:
-            self._label_axes_xy(axislabels, ax)
+            self._label_xy_axes(axislabels, ax)
 
         # Plot color bar
         if colorbar_flag:
