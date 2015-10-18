@@ -38,6 +38,7 @@ from .radx import read_radx
 from .d3r_gcpex_nc import read_d3r_gcpex_nc
 from .noxp_iphex_nc import read_noxp_iphex_nc
 from .arm_vpt import read_kazr
+from metek import read_mira35
 from .edge_netcdf import read_edge_netcdf
 try:
     from .gamic_hdf5 import read_gamic
